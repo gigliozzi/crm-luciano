@@ -1,0 +1,30 @@
+app = "crm-luciano-api" # Pode ser alterado pelo Fly no launch
+primary_region = "gru"
+
+[env]
+  PORT = "4000"
+  NODE_ENV = "production"
+  DATABASE_FILE = "/data/database.sqlite"
+  TZ = "America/Sao_Paulo"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_start = true
+  auto_stop_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 25
+
+[[mounts]]
+  source = "sqlite_data"
+  destination = "/data"
+
+[vm]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
