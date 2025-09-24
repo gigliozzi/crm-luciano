@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+.env
+data
+Dockerfile*
+.git
+.gitignore
+fly.toml
+scripts/*.tsbuildinfo
+**/.DS_Store
+
