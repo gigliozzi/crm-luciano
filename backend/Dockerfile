@@ -1,4 +1,5 @@
-FROM node:20-slim
+# Use GitHub Container Registry mirror to avoid Docker Hub auth/rate limits
+FROM ghcr.io/library/node:20-slim
 
 ENV NODE_ENV=production
 WORKDIR /app
@@ -15,4 +16,3 @@ RUN mkdir -p /data
 
 EXPOSE 4000
 CMD ["node", "src/server.js"]
-
