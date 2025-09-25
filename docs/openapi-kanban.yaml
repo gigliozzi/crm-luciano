@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: CRM Imobiliário - Kanban API
+  version: 0.1.0
+  description: Endpoints iniciais para Kanban de Leads multi-tenant
+servers:
+  - url: https://crm-luciano.fly.dev/api
+paths:
+  /tenants:
+    post:
+      summary: Criar tenant + admin
+      tags: [Tenants]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug, admin]
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                plan: { type: string, enum: [starter, pro, enterprise] }
+                tz: { type: string }
+                admin:
+                  type: object
+                  required: [name, email, password]
+                  properties:
+                    name: { type: string }
+                    email: { type: string }
+                    password: { type: string, format: password }
+      responses:
+        '201':
+          description: Tenant criado
+        '409':
+          description: Slug já existe
+
+  /stages:
+    get:
+      summary: Listar etapas do Kanban do tenant atual
+      tags: [Stages]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Criar/atualizar etapas (em lote)
+      tags: [Stages]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stages:
+                  type: array
+                  items:
+                    type: object
+                    required: [key, label, order]
+                    properties:
+                      key: { type: string }
+                      label: { type: string }
+                      order: { type: integer }
+                      wip_limit: { type: integer, nullable: true }
+                      is_closed: { type: boolean }
+      responses:
+        '200': { description: OK }
+
+  /leads:
+    get:
+      summary: Listar leads (paginado)
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: query
+          name: stage
+          schema: { type: string }
+        - in: query
+          name: owner
+          schema: { type: integer }
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 20 }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Criar lead
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadInput'
+      responses:
+        '201': { description: Criado }
+
+  /leads/{id}:
+    get:
+      summary: Detalhe do lead
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/LeadId'
+      responses:
+        '200': { description: OK }
+        '404': { description: Não encontrado }
+    patch:
+      summary: Atualizar lead
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/LeadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadInput'
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Remover lead
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/LeadId'
+      responses:
+        '204': { description: Removido }
+
+  /leads/{id}/move:
+    patch:
+      summary: Mover lead de etapa (drag & drop)
+      tags: [Leads]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/LeadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toStage]
+              properties:
+                toStage: { type: string }
+                position: { type: integer, nullable: true }
+      responses:
+        '200': { description: OK }
+
+components:
+  parameters:
+    TenantId:
+      in: header
+      name: X-Tenant-Id
+      required: true
+      schema: { type: string }
+    LeadId:
+      in: path
+      name: id
+      required: true
+      schema: { type: integer }
+  schemas:
+    LeadInput:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        stage: { type: string }
+        owner_id: { type: integer }
+        source: { type: string }
+        interest_type: { type: string }
+        property_type: { type: string }
+        min_price: { type: number }
+        max_price: { type: number }
+        city: { type: string }
+        neighborhood: { type: string }
+        next_followup_at: { type: string }
+        last_contact_at: { type: string }
+        notes_rich: { type: string }
+        tags: { type: string }
+        position: { type: integer }
+
