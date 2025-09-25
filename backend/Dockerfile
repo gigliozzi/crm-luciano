@@ -1,5 +1,6 @@
 # Use GitHub Container Registry mirror to avoid Docker Hub auth/rate limits
-FROM ghcr.io/library/node:20-slim
+# Use AWS Public ECR mirror to avoid Docker Hub/GHCR auth limits
+FROM public.ecr.aws/docker/library/node:20-slim
 
 ENV NODE_ENV=production
 WORKDIR /app
