@@ -17,7 +17,7 @@ export function AppHeader() {
     <header style={{ background: '#0d47a1', color: 'white' }}>
       <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <strong>CRM Corretor</strong>
+          <strong>Luciano Leandro</strong>
           <div style={{ fontSize: '0.85rem' }}>{user?.email}</div>
         </div>
         <nav style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>

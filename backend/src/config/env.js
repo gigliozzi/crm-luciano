@@ -21,6 +21,12 @@ export const config = {
     whatsappFrom: process.env.TWILIO_WHATSAPP_FROM,
     whatsappTo: process.env.TWILIO_WHATSAPP_TO,
   },
+  cors: {
+    allowedOrigins: (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
   phone: {
     defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE || '',
   },
