@@ -42,6 +42,16 @@ export async function initializeDatabase() {
     );
   `);
 
+  // Ensure role/is_active columns exist (SQLite ADD COLUMN is harmless if missing check prevented)
+  const userCols = await db.all("PRAGMA table_info('users')");
+  const names = userCols.map(c => c.name);
+  if (!names.includes('role')) {
+    await db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+  }
+  if (!names.includes('is_active')) {
+    await db.exec("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1");
+  }
+
   await db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,10 +116,11 @@ export async function initializeDatabase() {
   if (!existingAdmin) {
     const passwordHash = await bcrypt.hash(config.defaults.adminPassword, 10);
     await db.run(
-      'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)',
+      'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)',
       config.defaults.adminEmail,
       passwordHash,
-      'Administrador'
+      'Administrador',
+      'admin'
     );
   }
 

@@ -80,26 +80,101 @@ export async function moveLead(req, res) {
   const db = await getDb();
 
   // Validate target stage exists for the user
-  const st = await db.get('SELECT 1 FROM kanban_stages WHERE user_id = ? AND key = ?', req.user.userId, toStage);
-  if (!st) return res.status(400).json({ message: 'Etapa inválida.' });
+  const validStage = await db.get('SELECT 1 FROM kanban_stages WHERE user_id = ? AND key = ?', req.user.userId, toStage);
+  if (!validStage) return res.status(400).json({ message: 'Etapa inválida.' });
 
   // Ensure the contact belongs to the user
   const cnt = await db.get('SELECT 1 FROM contacts WHERE id = ? AND user_id = ?', id, req.user.userId);
   if (!cnt) return res.status(404).json({ message: 'Lead/contato não encontrado.' });
 
-  let newPos = position;
-  if (!Number.isFinite(newPos)) {
-    const row = await db.get('SELECT COALESCE(MAX(position), 0) as maxp FROM contact_stages WHERE user_id = ? AND stage_key = ?', req.user.userId, toStage);
-    newPos = row.maxp + 1;
+  await db.exec('BEGIN');
+  try {
+    // Read current mapping; ensure exists
+    let row = await db.get(
+      'SELECT stage_key, position FROM contact_stages WHERE user_id = ? AND contact_id = ?',
+      req.user.userId,
+      id
+    );
+    if (!row) {
+      await db.run(
+        'INSERT INTO contact_stages (user_id, contact_id, stage_key, position) VALUES (?, ?, ?, ?)',
+        req.user.userId,
+        id,
+        'new',
+        0
+      );
+      row = { stage_key: 'new', position: 0 };
+    }
+
+    const fromStage = row.stage_key;
+    const fromPos = row.position;
+
+    // Clamp target position to current count range
+    const countRow = await db.get(
+      'SELECT COUNT(*) as n FROM contact_stages WHERE user_id = ? AND stage_key = ?',
+      req.user.userId,
+      toStage
+    );
+    const targetCount = countRow?.n ?? 0;
+    let targetPos = Number.isFinite(position) ? Math.max(0, Math.min(position, targetCount)) : targetCount;
+
+    if (fromStage === toStage) {
+      if (targetPos === fromPos) {
+        await db.exec('COMMIT');
+        return res.json({ id: Number(id), stage: toStage, position: fromPos });
+      }
+      if (targetPos < fromPos) {
+        // moving up: shift down items between targetPos..fromPos-1
+        await db.run(
+          'UPDATE contact_stages SET position = position + 1 WHERE user_id = ? AND stage_key = ? AND position >= ? AND position < ?',
+          req.user.userId,
+          toStage,
+          targetPos,
+          fromPos
+        );
+      } else {
+        // moving down: shift up items between fromPos+1..targetPos
+        await db.run(
+          'UPDATE contact_stages SET position = position - 1 WHERE user_id = ? AND stage_key = ? AND position > ? AND position <= ?',
+          req.user.userId,
+          toStage,
+          fromPos,
+          targetPos
+        );
+      }
+      await db.run(
+        'UPDATE contact_stages SET position = ? WHERE user_id = ? AND contact_id = ?',
+        targetPos,
+        req.user.userId,
+        id
+      );
+    } else {
+      // moving across stages: compact source, make room in target
+      await db.run(
+        'UPDATE contact_stages SET position = position - 1 WHERE user_id = ? AND stage_key = ? AND position > ?',
+        req.user.userId,
+        fromStage,
+        fromPos
+      );
+      await db.run(
+        'UPDATE contact_stages SET position = position + 1 WHERE user_id = ? AND stage_key = ? AND position >= ?',
+        req.user.userId,
+        toStage,
+        targetPos
+      );
+      await db.run(
+        'UPDATE contact_stages SET stage_key = ?, position = ? WHERE user_id = ? AND contact_id = ?',
+        toStage,
+        targetPos,
+        req.user.userId,
+        id
+      );
+    }
+
+    await db.exec('COMMIT');
+    return res.json({ id: Number(id), stage: toStage, position: targetPos });
+  } catch (e) {
+    await db.exec('ROLLBACK');
+    throw e;
   }
-
-  await db.run(
-    'UPDATE contact_stages SET stage_key = ?, position = ? WHERE user_id = ? AND contact_id = ?',
-    toStage,
-    newPos,
-    req.user.userId,
-    id
-  );
-
-  return res.json({ id: Number(id), stage: toStage, position: newPos });
 }

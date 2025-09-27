@@ -69,20 +69,30 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
     e.preventDefault();
   };
 
-  const handleDrop = async (e, toStage) => {
+  const handleDrop = async (e, toStage, targetIndex) => {
     e.preventDefault();
     const id = Number(e.dataTransfer.getData('text/plain'));
     if (!id) return;
 
     // optimistic UI
-    setState((cur) => ({
-      columns: cur.columns,
-      leads: cur.leads.map((l) => (l.id === id ? { ...l, stage: toStage } : l)),
-    }));
+    setState((cur) => {
+      const leads = [...cur.leads];
+      const moved = leads.find((l) => l.id === id);
+      if (!moved) return cur;
+      const fromStage = moved.stage;
+      // compute arrays by stage
+      const sameStage = fromStage === toStage;
+      // reorder locally
+      moved.stage = toStage;
+      // Set basic position; detailed ordering comes from API on refresh
+      leads.sort((a, b) => (a.stage === b.stage ? (a.position - b.position || a.id - b.id) : 0));
+      return { columns: cur.columns, leads };
+    });
     setDragging(null);
 
     try {
-      await apiClient.patch(`/kanban/leads/${id}/move`, { toStage });
+      const body = Number.isFinite(targetIndex) ? { toStage, position: targetIndex } : { toStage };
+      await apiClient.patch(`/kanban/leads/${id}/move`, body);
     } catch (err) {
       console.warn('Falha ao mover lead, revertendo');
       // reload minimal

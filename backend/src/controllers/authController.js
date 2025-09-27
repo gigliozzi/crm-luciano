@@ -14,10 +14,14 @@ export async function login(req, res) {
   }
 
   const db = await getDb();
-  const user = await db.get('SELECT id, email, password_hash, name FROM users WHERE email = ?', email);
+  const user = await db.get('SELECT id, email, password_hash, name, COALESCE(role,\'admin\') as role, COALESCE(is_active,1) as is_active FROM users WHERE email = ?', email);
 
   if (!user) {
     return res.status(401).json({ message: 'Credenciais inválidas.' });
+  }
+
+  if (user.is_active === 0) {
+    return res.status(403).json({ message: 'Usuário inativo.' });
   }
 
   const matches = await bcrypt.compare(password, user.password_hash);
@@ -25,7 +29,7 @@ export async function login(req, res) {
     return res.status(401).json({ message: 'Credenciais inválidas.' });
   }
 
-  const token = jwt.sign({ userId: user.id, email: user.email }, config.jwtSecret, {
+  const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, config.jwtSecret, {
     expiresIn: '12h',
   });
 
@@ -35,6 +39,7 @@ export async function login(req, res) {
       id: user.id,
       email: user.email,
       name: user.name,
+      role: user.role,
     },
   });
 }
@@ -57,13 +62,14 @@ export async function register(req, res) {
 
   const passwordHash = await bcrypt.hash(password, 10);
   const result = await db.run(
-    'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)',
+    'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)',
     email,
     passwordHash,
-    name
+    name,
+    'admin'
   );
 
-  return res.status(201).json({ id: result.lastID, email, name });
+  return res.status(201).json({ id: result.lastID, email, name, role: 'admin' });
 }
 
 /**
