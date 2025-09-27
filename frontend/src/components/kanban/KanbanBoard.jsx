@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { KanbanColumn } from './KanbanColumn.jsx';
+import { apiClient } from '../../services/api.js';
 
 const STORAGE_KEY = 'kanban-demo-state';
 
@@ -12,6 +13,7 @@ const defaultColumns = [
   { key: 'lost', label: 'Fechado (Perdido)' },
 ];
 
+// Demo fallback in case API is unreachable
 const demoLeads = [
   { id: 1, name: 'Carlos Souza', phone: '+5511999991111', email: 'carlos@example.com', city: 'São Paulo', neighborhood: 'Moema', min_price: 600000, max_price: 900000, tags: 'apto,3dorm', stage: 'new', position: 0 },
   { id: 2, name: 'Marina Alves', phone: '+5521977772222', email: 'marina@example.com', city: 'Rio', neighborhood: 'Tijuca', interest_type: 'rent', min_price: 2500, max_price: 3500, tags: 'casa', stage: 'qualifying', position: 0 },
@@ -23,19 +25,29 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
   const [dragging, setDragging] = useState(null);
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        setState(JSON.parse(raw));
-        return;
-      } catch {}
-    }
-    setState({ columns, leads: initialLeads });
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
+
+  // Load stages + leads from API
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [{ data: s }, { data: l }] = await Promise.all([
+          apiClient.get('/kanban/stages'),
+          apiClient.get('/kanban/leads'),
+        ]);
+        if (!cancelled) {
+          setState({ columns: s.stages || defaultColumns, leads: (l.leads || demoLeads) });
+        }
+      } catch (err) {
+        console.warn('Kanban: falha ao carregar API. Usando demo.');
+        if (!cancelled) setState({ columns: defaultColumns, leads: demoLeads });
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   const byStage = useMemo(() => {
     const map = Object.fromEntries(state.columns.map((c) => [c.key, []]));
@@ -57,15 +69,29 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
     e.preventDefault();
   };
 
-  const handleDrop = (e, toStage) => {
+  const handleDrop = async (e, toStage) => {
     e.preventDefault();
     const id = Number(e.dataTransfer.getData('text/plain'));
     if (!id) return;
-    setState((cur) => {
-      const leads = cur.leads.map((l) => (l.id === id ? { ...l, stage: toStage } : l));
-      return { ...cur, leads };
-    });
+
+    // optimistic UI
+    setState((cur) => ({
+      columns: cur.columns,
+      leads: cur.leads.map((l) => (l.id === id ? { ...l, stage: toStage } : l)),
+    }));
     setDragging(null);
+
+    try {
+      await apiClient.patch(`/kanban/leads/${id}/move`, { toStage });
+    } catch (err) {
+      console.warn('Falha ao mover lead, revertendo');
+      // reload minimal
+      try {
+        const { data } = await apiClient.get('/kanban/leads');
+        setState((cur) => ({ columns: cur.columns, leads: data.leads || [] }));
+      } catch {}
+    }
+
     onMove?.({ id, toStage });
   };
 

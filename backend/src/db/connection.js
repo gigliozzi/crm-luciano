@@ -72,6 +72,36 @@ export async function initializeDatabase() {
     );
   `);
 
+  // Kanban tables (user-scoped for now)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS kanban_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      "order" INTEGER NOT NULL DEFAULT 0,
+      wip_limit INTEGER,
+      is_closed INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(user_id, key)
+    );
+  `);
+
+  await db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_kanban_stages_user_order
+      ON kanban_stages(user_id, "order");
+  `);
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS contact_stages (
+      user_id INTEGER NOT NULL,
+      contact_id INTEGER NOT NULL,
+      stage_key TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(user_id, contact_id),
+      FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+    );
+  `);
+
   const existingAdmin = await db.get('SELECT id FROM users WHERE email = ?', config.defaults.adminEmail);
   if (!existingAdmin) {
     const passwordHash = await bcrypt.hash(config.defaults.adminPassword, 10);
@@ -81,5 +111,32 @@ export async function initializeDatabase() {
       passwordHash,
       'Administrador'
     );
+  }
+
+  // Seed default stages for all users that don't have any configured
+  const users = await db.all('SELECT id FROM users');
+  for (const u of users) {
+    const row = await db.get('SELECT COUNT(*) as n FROM kanban_stages WHERE user_id = ?', u.id);
+    if (!row || row.n === 0) {
+      const defaults = [
+        { key: 'new', label: 'Novo', is_closed: 0 },
+        { key: 'qualifying', label: 'Qualificando', is_closed: 0 },
+        { key: 'scheduled', label: 'Agendado', is_closed: 0 },
+        { key: 'proposal', label: 'Proposta', is_closed: 0 },
+        { key: 'won', label: 'Fechado (Ganho)', is_closed: 1 },
+        { key: 'lost', label: 'Fechado (Perdido)', is_closed: 1 },
+      ];
+      let order = 0;
+      for (const d of defaults) {
+        await db.run(
+          'INSERT OR IGNORE INTO kanban_stages (user_id, key, label, "order", is_closed) VALUES (?, ?, ?, ?, ?)',
+          u.id,
+          d.key,
+          d.label,
+          order++,
+          d.is_closed ? 1 : 0
+        );
+      }
+    }
   }
 }
