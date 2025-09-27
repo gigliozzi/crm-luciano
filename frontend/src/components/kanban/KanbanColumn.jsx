@@ -6,8 +6,10 @@ export function KanbanColumn({ column, leads, onDragOver, onDrop, onStartDrag, o
       onDragOver={(e) => onDragOver(e, column.key)}
       onDrop={(e) => onDrop(e, column.key)}
       style={{
+        flex: '1 1 320px',
         minWidth: 280,
-        width: 320,
+        maxWidth: 420,
+        boxSizing: 'border-box',
         background: '#f7f9fc',
         border: '1px solid #e1e5ee',
         borderRadius: 12,
@@ -24,4 +26,3 @@ export function KanbanColumn({ column, leads, onDragOver, onDrop, onStartDrag, o
     </div>
   );
 }
-

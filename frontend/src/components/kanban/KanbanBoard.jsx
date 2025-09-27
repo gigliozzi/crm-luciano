@@ -74,7 +74,18 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
   };
 
   return (
-    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        rowGap: 12,
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+        overflowX: 'hidden',
+        paddingBottom: 12,
+      }}
+    >
       {state.columns.map((col) => (
         <KanbanColumn
           key={col.key}
@@ -89,4 +100,3 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
     </div>
   );
 }
-
