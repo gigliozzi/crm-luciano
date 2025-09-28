@@ -2,8 +2,6 @@
 import { KanbanColumn } from './KanbanColumn.jsx';
 import { apiClient } from '../../services/api.js';
 
-const STORAGE_KEY = 'kanban-demo-state';
-
 const defaultColumns = [
   { key: 'new', label: 'Novo' },
   { key: 'qualifying', label: 'Qualificando' },
@@ -13,41 +11,30 @@ const defaultColumns = [
   { key: 'lost', label: 'Fechado (Perdido)' },
 ];
 
-// Demo fallback in case API is unreachable
-const demoLeads = [
-  { id: 1, name: 'Carlos Souza', phone: '+5511999991111', email: 'carlos@example.com', city: 'São Paulo', neighborhood: 'Moema', min_price: 600000, max_price: 900000, tags: 'apto,3dorm', stage: 'new', position: 0 },
-  { id: 2, name: 'Marina Alves', phone: '+5521977772222', email: 'marina@example.com', city: 'Rio', neighborhood: 'Tijuca', interest_type: 'rent', min_price: 2500, max_price: 3500, tags: 'casa', stage: 'qualifying', position: 0 },
-  { id: 3, name: 'Eduardo Lima', phone: '+5531988883333', email: 'edu@example.com', city: 'BH', neighborhood: 'Savassi', tags: 'sala,comercial', stage: 'proposal', position: 0 },
-];
-
-export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads, onMove }) {
-  const [state, setState] = useState({ columns, leads: initialLeads });
+export function KanbanBoard({ filters, columns = defaultColumns, onMove, onOpenLead }) {
+  const [state, setState] = useState({ columns, leads: [] });
   const [dragging, setDragging] = useState(null);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
-
-  // Load stages + leads from API
+  // Load stages + leads from API (respect filters)
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
         const [{ data: s }, { data: l }] = await Promise.all([
           apiClient.get('/kanban/stages'),
-          apiClient.get('/kanban/leads'),
+          apiClient.get('/kanban/leads', { params: filters }),
         ]);
         if (!cancelled) {
-          setState({ columns: s.stages || defaultColumns, leads: (l.leads || demoLeads) });
+          setState({ columns: s.stages || defaultColumns, leads: (l.leads || []) });
         }
       } catch (err) {
-        console.warn('Kanban: falha ao carregar API. Usando demo.');
-        if (!cancelled) setState({ columns: defaultColumns, leads: demoLeads });
+        console.warn('Kanban: falha ao carregar API.');
+        if (!cancelled) setState({ columns: defaultColumns, leads: [] });
       }
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [JSON.stringify(filters)]);
 
   const byStage = useMemo(() => {
     const map = Object.fromEntries(state.columns.map((c) => [c.key, []]));
@@ -79,25 +66,18 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
       const leads = [...cur.leads];
       const moved = leads.find((l) => l.id === id);
       if (!moved) return cur;
-      const fromStage = moved.stage;
-      // compute arrays by stage
-      const sameStage = fromStage === toStage;
-      // reorder locally
       moved.stage = toStage;
-      // Set basic position; detailed ordering comes from API on refresh
-      leads.sort((a, b) => (a.stage === b.stage ? (a.position - b.position || a.id - b.id) : 0));
       return { columns: cur.columns, leads };
     });
     setDragging(null);
 
     try {
       const body = Number.isFinite(targetIndex) ? { toStage, position: targetIndex } : { toStage };
-      await apiClient.patch(`/kanban/leads/${id}/move`, body);
+      await apiClient.patch(/kanban/leads//move, body);
     } catch (err) {
-      console.warn('Falha ao mover lead, revertendo');
-      // reload minimal
+      console.warn('Falha ao mover lead, recarregando');
       try {
-        const { data } = await apiClient.get('/kanban/leads');
+        const { data } = await apiClient.get('/kanban/leads', { params: filters });
         setState((cur) => ({ columns: cur.columns, leads: data.leads || [] }));
       } catch {}
     }
@@ -106,7 +86,8 @@ export function KanbanBoard({ columns = defaultColumns, initialLeads = demoLeads
   };
 
   const handleOpen = (lead) => {
-    alert(`Abrir lead ${lead.name} (ID ${lead.id}) — Integração futura`);
+    if (onOpenLead) onOpenLead(lead);
+    else alert(Abrir lead  (ID ));
   };
 
   return (

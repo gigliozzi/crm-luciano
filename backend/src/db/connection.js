@@ -112,6 +112,21 @@ export async function initializeDatabase() {
     );
   `);
 
+  // Timeline (lead events)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS lead_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      contact_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      payload_json TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_lead_events_user_contact ON lead_events(user_id, contact_id, created_at);
+  `);
+
   const existingAdmin = await db.get('SELECT id FROM users WHERE email = ?', config.defaults.adminEmail);
   if (!existingAdmin) {
     const passwordHash = await bcrypt.hash(config.defaults.adminPassword, 10);

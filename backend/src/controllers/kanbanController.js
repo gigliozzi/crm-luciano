@@ -41,6 +41,8 @@ export async function upsertStages(req, res) {
 
 export async function listLeads(req, res) {
   const db = await getDb();
+  const { stage, q, from, to } = req.query || {};
+
   // Ensure every contact has a stage mapping (lazy create)
   const contacts = await db.all(
     'SELECT * FROM contacts WHERE user_id = ? ORDER BY created_at DESC',
@@ -55,20 +57,32 @@ export async function listLeads(req, res) {
       0
     );
   }
-  const leads = await db.all(
-    `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, cs.stage_key as stage, cs.position
-     FROM contacts c
-     JOIN contact_stages cs ON cs.user_id = c.user_id AND cs.contact_id = c.id
-     WHERE c.user_id = ?`,
-    req.user.userId
-  );
-  const mapped = leads.map((l) => ({
+
+  // Build query with optional filters
+  let sql = `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, cs.stage_key as stage, cs.position, c.created_at
+             FROM contacts c
+             JOIN contact_stages cs ON cs.user_id = c.user_id AND cs.contact_id = c.id
+             WHERE c.user_id = ?`;
+  const params = [req.user.userId];
+  if (stage) { sql += ' AND cs.stage_key = ?'; params.push(stage); }
+  if (q) {
+    sql += ' AND (lower(c.first_name) LIKE ? OR lower(c.last_name) LIKE ? OR lower(c.email) LIKE ? OR c.phone LIKE ?)';
+    const like = `%${String(q).toLowerCase()}%`;
+    params.push(like, like, like, `%${q}%`);
+  }
+  if (from) { sql += " AND date(c.created_at) >= date(?)"; params.push(from); }
+  if (to) { sql += " AND date(c.created_at) <= date(?)"; params.push(to); }
+  sql += ' ORDER BY cs.stage_key, cs.position, c.id';
+
+  const rows = await db.all(sql, ...params);
+  const mapped = rows.map((l) => ({
     id: l.id,
     name: `${l.first_name} ${l.last_name}`.trim(),
     email: l.email,
     phone: l.phone,
     stage: l.stage,
     position: l.position,
+    created_at: l.created_at,
   }));
   return res.json({ leads: mapped });
 }
@@ -88,6 +102,7 @@ export async function moveLead(req, res) {
   if (!cnt) return res.status(404).json({ message: 'Lead/contato não encontrado.' });
 
   await db.exec('BEGIN');
+  let targetPos = 0;
   try {
     // Read current mapping; ensure exists
     let row = await db.get(
@@ -116,40 +131,35 @@ export async function moveLead(req, res) {
       toStage
     );
     const targetCount = countRow?.n ?? 0;
-    let targetPos = Number.isFinite(position) ? Math.max(0, Math.min(position, targetCount)) : targetCount;
+    targetPos = Number.isFinite(position) ? Math.max(0, Math.min(position, targetCount)) : targetCount;
 
     if (fromStage === toStage) {
-      if (targetPos === fromPos) {
-        await db.exec('COMMIT');
-        return res.json({ id: Number(id), stage: toStage, position: fromPos });
-      }
-      if (targetPos < fromPos) {
-        // moving up: shift down items between targetPos..fromPos-1
+      if (targetPos !== fromPos) {
+        if (targetPos < fromPos) {
+          await db.run(
+            'UPDATE contact_stages SET position = position + 1 WHERE user_id = ? AND stage_key = ? AND position >= ? AND position < ?',
+            req.user.userId,
+            toStage,
+            targetPos,
+            fromPos
+          );
+        } else {
+          await db.run(
+            'UPDATE contact_stages SET position = position - 1 WHERE user_id = ? AND stage_key = ? AND position > ? AND position <= ?',
+            req.user.userId,
+            toStage,
+            fromPos,
+            targetPos
+          );
+        }
         await db.run(
-          'UPDATE contact_stages SET position = position + 1 WHERE user_id = ? AND stage_key = ? AND position >= ? AND position < ?',
-          req.user.userId,
-          toStage,
+          'UPDATE contact_stages SET position = ? WHERE user_id = ? AND contact_id = ?',
           targetPos,
-          fromPos
-        );
-      } else {
-        // moving down: shift up items between fromPos+1..targetPos
-        await db.run(
-          'UPDATE contact_stages SET position = position - 1 WHERE user_id = ? AND stage_key = ? AND position > ? AND position <= ?',
           req.user.userId,
-          toStage,
-          fromPos,
-          targetPos
+          id
         );
       }
-      await db.run(
-        'UPDATE contact_stages SET position = ? WHERE user_id = ? AND contact_id = ?',
-        targetPos,
-        req.user.userId,
-        id
-      );
     } else {
-      // moving across stages: compact source, make room in target
       await db.run(
         'UPDATE contact_stages SET position = position - 1 WHERE user_id = ? AND stage_key = ? AND position > ?',
         req.user.userId,
@@ -171,10 +181,62 @@ export async function moveLead(req, res) {
       );
     }
 
+    // Timeline: stage_changed
+    const payload = JSON.stringify({ from: row.stage_key, to: toStage });
+    await db.run(
+      'INSERT INTO lead_events (user_id, contact_id, type, payload_json) VALUES (?, ?, ?, ?)',
+      req.user.userId,
+      id,
+      'stage_changed',
+      payload
+    );
+
     await db.exec('COMMIT');
     return res.json({ id: Number(id), stage: toStage, position: targetPos });
   } catch (e) {
     await db.exec('ROLLBACK');
     throw e;
   }
+}
+
+export async function listEvents(req, res) {
+  const { id } = req.params; // lead/contact id
+  const db = await getDb();
+  const rows = await db.all(
+    'SELECT id, type, payload_json, created_at FROM lead_events WHERE user_id = ? AND contact_id = ? ORDER BY id DESC',
+    req.user.userId,
+    id
+  );
+  const events = rows.map((r) => ({ id: r.id, type: r.type, payload: r.payload_json ? JSON.parse(r.payload_json) : null, created_at: r.created_at }));
+  return res.json({ events });
+}
+
+export async function addNote(req, res) {
+  const { id } = req.params;
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ message: 'Texto é obrigatório.' });
+  const db = await getDb();
+  await db.run(
+    'INSERT INTO lead_events (user_id, contact_id, type, payload_json) VALUES (?, ?, ?, ?)',
+    req.user.userId,
+    id,
+    'note',
+    JSON.stringify({ text })
+  );
+  return res.status(201).json({ ok: true });
+}
+
+export async function addFollowup(req, res) {
+  const { id } = req.params;
+  const { date, channel } = req.body || {};
+  if (!date) return res.status(400).json({ message: 'Data é obrigatória.' });
+  const db = await getDb();
+  await db.run(
+    'INSERT INTO lead_events (user_id, contact_id, type, payload_json) VALUES (?, ?, ?, ?)',
+    req.user.userId,
+    id,
+    'followup',
+    JSON.stringify({ date, channel: channel || 'unspecified' })
+  );
+  return res.status(201).json({ ok: true });
 }
