@@ -1,4 +1,5 @@
 ﻿import { getDb } from '../db/connection.js';
+import { config } from '../config/env.js';
 
 export async function listStages(req, res) {
   const db = await getDb();
@@ -75,15 +76,52 @@ export async function listLeads(req, res) {
   sql += ' ORDER BY cs.stage_key, cs.position, c.id';
 
   const rows = await db.all(sql, ...params);
-  const mapped = rows.map((l) => ({
-    id: l.id,
-    name: `${l.first_name} ${l.last_name}`.trim(),
-    email: l.email,
-    phone: l.phone,
-    stage: l.stage,
-    position: l.position,
-    created_at: l.created_at,
-  }));
+  const offset = `-${3} days`; // default 3; can be read from env if needed
+  const nowRow = await db.get("SELECT datetime('now','localtime') as now");
+  const now = nowRow.now;
+
+  const mapped = [];
+  for (const l of rows) {
+    const lastEvent = await db.get(
+      'SELECT MAX(created_at) as last_event_at FROM lead_events WHERE user_id = ? AND contact_id = ?',
+      req.user.userId,
+      l.id
+    );
+    const lastActivity = lastEvent?.last_event_at || l.created_at;
+    const stale = (new Date(lastActivity).getTime() < (Date.now() - staleDays * 24 * 60 * 60 * 1000));
+
+    const nextFup = await db.get(
+      `SELECT MIN(datetime(json_extract(payload_json,'$.date'))) as next_followup_at
+       FROM lead_events
+       WHERE user_id = ? AND contact_id = ? AND type = 'followup'
+         AND datetime(json_extract(payload_json,'$.date')) > datetime('now','localtime')`,
+      req.user.userId,
+      l.id
+    );
+    const lastDueFup = await db.get(
+      `SELECT MAX(datetime(json_extract(payload_json,'$.date'))) as last_due_followup_at
+       FROM lead_events
+       WHERE user_id = ? AND contact_id = ? AND type = 'followup'
+         AND datetime(json_extract(payload_json,'$.date')) <= datetime('now','localtime')`,
+      req.user.userId,
+      l.id
+    );
+    const overdue = lastDueFup?.last_due_followup_at && (!lastEvent?.last_event_at || new Date(lastEvent.last_event_at) < new Date(lastDueFup.last_due_followup_at));
+
+    mapped.push({
+      id: l.id,
+      name: `${l.first_name} ${l.last_name}`.trim(),
+      email: l.email,
+      phone: l.phone,
+      stage: l.stage,
+      position: l.position,
+      created_at: l.created_at,
+      last_activity_at: lastActivity,
+      next_followup_at: nextFup?.next_followup_at || null,
+      overdue_followup: Boolean(overdue),
+      stale: Boolean(stale),
+    });
+  }
   return res.json({ leads: mapped });
 }
 
@@ -240,3 +278,4 @@ export async function addFollowup(req, res) {
   );
   return res.status(201).json({ ok: true });
 }
+

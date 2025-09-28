@@ -44,6 +44,9 @@ export const config = {
     phone: process.env.BRAND_PHONE || '',
     address: process.env.BRAND_ADDRESS || '',
   },
+  sla: {
+    staleDays: Number(process.env.SLA_STALE_DAYS || 3),
+  },
   defaults: {
     adminEmail: process.env.DEFAULT_ADMIN_EMAIL || 'admin@example.com',
     adminPassword: process.env.DEFAULT_ADMIN_PASSWORD || 'secret123',
