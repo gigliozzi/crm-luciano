@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage.jsx';
 import ContactsPage from './pages/ContactsPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import KanbanPage from './pages/KanbanPage.jsx';
+import KanbanSettingsPage from './pages/KanbanSettingsPage.jsx';
 import { ProtectedRoute } from './components/ProtectedRoute.jsx';
 import { AppLayout } from './components/AppLayout.jsx';
 
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/contatos" element={<ContactsPage />} />
           <Route path="/kanban" element={<KanbanPage />} />
+          <Route path="/kanban/config" element={<KanbanSettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>
